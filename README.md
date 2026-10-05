@@ -1,59 +1,118 @@
-# DevOps Tech Challenge – Node.js Deployment on AWS ECS
+# Building a Production-Style CI/CD Platform on AWS ECS
 
-## Overview
+## Why I Built This
 
-This project demonstrates a complete CI/CD deployment of a React frontend and Express.js backend to AWS ECS Fargate.
+I built this project as part of my hands-on journey into Cloud and DevOps engineering.
 
-The application is containerized with Docker, infrastructure is provisioned using Terraform, and deployments are automated using Jenkins.
+I wanted to go beyond tutorials and build an environment where I could connect the tools I had been learning individually — Docker, Terraform, Jenkins, AWS, GitHub Actions, networking, IAM, load balancing, and auto scaling — into one complete deployment workflow.
 
-An alternative GitOps deployment using GitHub Actions is also implemented on the `gitops` branch.
+The goal was simple:
+
+> Push code, build containers, ship them to AWS, deploy them automatically, and let the infrastructure handle scaling.
+
+The application itself is intentionally simple: a React frontend communicating with a Node.js/Express backend. The interesting part of this project is everything around the application.
+
+I containerized both services, provisioned the AWS infrastructure with Terraform, deployed the containers to ECS Fargate, configured an Application Load Balancer for path-based routing, added CPU-based auto scaling, and built two different CI/CD workflows using Jenkins and GitHub Actions.
+
+This repo is one of my cloud labs — build it, break it, troubleshoot it, automate it, understand why it works, and eventually tear it all back down.
+
+---
 
 ## Architecture
 
 ```text
-                         Internet
-                            |
-                            v
-                Application Load Balancer
-                     /              \
-                    /                \
-                   /api/*             /*
-                    |                  |
-                    v                  v
-             Backend ECS          Frontend ECS
-             Fargate Task         Fargate Task
-             Port 8080            Port 80
-                    \                /
-                     \              /
-                      Amazon ECR
-                          ^
-                          |
-                       Jenkins
-                          ^
-                          |
-                        GitHub
+                              Internet
+                                 |
+                                 v
+                     Application Load Balancer
+                          /              \
+                         /                \
+                    /api/*                 /*
+                       |                    |
+                       v                    v
+                 Backend ECS          Frontend ECS
+                 Fargate Task         Fargate Task
+                  Port 8080             Port 80
+                       |                    |
+                       +---------+----------+
+                                 |
+                            Amazon ECR
+                                 ^
+                                 |
+                    +------------+------------+
+                    |                         |
+                 Jenkins               GitHub Actions
+                    ^                         ^
+                    |                         |
+                    +----------- GitHub ------+
 ```
 
-The Application Load Balancer routes:
+The Application Load Balancer is the public entry point into the environment.
 
-- `/` and frontend traffic to the React frontend service.
-- `/api/*` to the Express backend service.
+Traffic is routed based on the request path:
 
-Both applications run as Docker containers using AWS ECS Fargate.
+- `/` → React frontend
+- `/api/*` → Express backend
 
-## Technologies
+Both services run independently as Docker containers on AWS ECS Fargate.
 
-- AWS ECS Fargate
+---
+
+## Tech Stack
+
+### Cloud
+
+- AWS ECS
+- AWS Fargate
 - Amazon ECR
 - Application Load Balancer
 - AWS IAM
+- Amazon VPC
+
+### Infrastructure & Automation
+
 - Terraform
-- Docker
 - Jenkins
 - GitHub Actions
-- React
-- Node.js / Express
+- Docker
 - Git
+
+### Application
+
+- React
+- Node.js
+- Express
+- Nginx
+
+---
+
+## What I Built
+
+Instead of treating this as just an application deployment, I broke the environment into several layers:
+
+```text
+Application
+     ↓
+Containers
+     ↓
+Container Registry
+     ↓
+Compute / Orchestration
+     ↓
+Networking
+     ↓
+Load Balancing
+     ↓
+Auto Scaling
+     ↓
+CI/CD Automation
+     ↓
+Infrastructure as Code
+```
+
+That helped me understand how the individual DevOps tools fit together rather than learning each one in isolation.
+
+---
 
 ## Repository Structure
 
@@ -84,11 +143,13 @@ Both applications run as Docker containers using AWS ECS Fargate.
 └── README.md
 ```
 
-## Local Application
+---
 
-The application was tested with Node.js 16.
+# Running the Application Locally
 
-### Backend
+The application was tested using Node.js 16.
+
+## Backend
 
 ```bash
 cd backend
@@ -96,15 +157,15 @@ npm ci
 npm start
 ```
 
-The backend runs on:
+The backend listens on:
 
 ```text
 http://localhost:8080
 ```
 
-### Frontend
+## Frontend
 
-Open another terminal:
+From another terminal:
 
 ```bash
 cd frontend
@@ -112,41 +173,70 @@ npm ci
 npm start
 ```
 
-The frontend development server runs on:
+The React development server runs on:
 
 ```text
 http://localhost:3000
 ```
 
-## Docker
+The frontend calls the backend and displays a GUID returned by the API.
 
-### Build Backend
+---
+
+# Containerization
+
+Both application components are containerized independently.
+
+## Backend
 
 ```bash
 docker build -t challenge-backend ./backend
 ```
 
-### Build Frontend
+The Express application listens on port `8080`.
+
+## Frontend
 
 ```bash
 docker build -t challenge-frontend ./frontend
 ```
 
-The production frontend is built using Node.js and served by Nginx.
+The frontend uses a multi-stage Docker build.
 
-## Infrastructure Deployment
+Node.js builds the React production bundle, then Nginx serves the resulting static files on port `80`.
 
-All application infrastructure is provisioned using Terraform.
+```text
+React Source
+     ↓
+Node.js Build
+     ↓
+Static Production Files
+     ↓
+Nginx
+     ↓
+Port 80
+```
 
-Terraform creates:
+The resulting images are pushed to private Amazon ECR repositories before being deployed to ECS.
+
+---
+
+# Infrastructure as Code with Terraform
+
+I wanted the application infrastructure to be reproducible instead of clicking through the AWS console every time I rebuilt the environment.
+
+Terraform provisions the AWS application stack.
+
+The configuration creates:
 
 - VPC
-- Two public subnets in separate Availability Zones
+- Two public subnets across separate Availability Zones
 - Internet Gateway
-- Route table
+- Public route table
 - Security groups
 - Application Load Balancer
-- Frontend and backend target groups
+- Frontend target group
+- Backend target group
 - Amazon ECR repositories
 - ECS cluster
 - ECS task definitions
@@ -154,214 +244,335 @@ Terraform creates:
 - IAM ECS task execution role
 - ECS Service Auto Scaling
 
-Initialize Terraform:
+The Terraform workflow is:
 
 ```bash
 cd terraform
 terraform init
-```
-
-Format and validate:
-
-```bash
 terraform fmt
 terraform validate
-```
-
-Review the infrastructure:
-
-```bash
 terraform plan
-```
-
-Deploy:
-
-```bash
 terraform apply
 ```
 
-## ECS Configuration
+I intentionally review `terraform plan` before applying changes so I can see exactly what Terraform intends to create, modify, or destroy.
 
-Both ECS services use AWS Fargate.
+---
+
+# ECS Fargate
+
+I chose AWS Fargate so the application containers can run without managing the underlying ECS worker servers.
+
+The frontend and backend run as separate ECS services.
 
 Each task is configured with:
 
 ```text
 CPU:            512 units (0.5 vCPU)
 Memory:         1024 MB (1 GB)
+
 Minimum tasks:  1
 Desired tasks:  1
 Maximum tasks:  4
 ```
 
-Target tracking auto scaling maintains approximately:
+This gives each service its own lifecycle while still allowing both to be exposed through the same load balancer.
+
+---
+
+# Auto Scaling
+
+Both ECS services use target-tracking auto scaling.
+
+The target is:
 
 ```text
 50% average CPU utilization
 ```
 
-for both the frontend and backend services.
-
-## Load Balancer Routing
-
-A single public Application Load Balancer exposes the application.
+The services can scale between:
 
 ```text
-ALB
- |
- +---- /api/* ----> Backend Target Group ----> ECS :8080
- |
- +---- /* --------> Frontend Target Group ---> ECS :80
+1 → 4 tasks
 ```
 
-The frontend uses `/api/` for backend requests. This allows the browser to communicate with both services through the same Application Load Balancer.
-
-## Jenkins CI/CD Pipeline
-
-Jenkins runs on a dedicated EC2 instance.
-
-The Jenkins server was configured manually because the challenge only requires the application infrastructure to be provisioned with Terraform.
-
-The EC2 instance uses an IAM instance role rather than static AWS credentials.
-
-The Jenkins pipeline performs:
+Conceptually:
 
 ```text
-GitHub
-   |
-   v
-Checkout Source Code
-   |
-   v
-Build Docker Images
-   |
-   v
-Authenticate to Amazon ECR
-   |
-   v
-Push Images to ECR
-   |
-   v
-Force New ECS Deployment
-   |
-   v
-Wait for ECS Services
-   |
-   v
-Deployment Complete
+Normal Traffic
+     ↓
+   1 Task
+
+CPU increases
+     ↓
+Target Tracking Policy
+     ↓
+ECS increases DesiredCount
+     ↓
+Additional Fargate Tasks
+     ↓
+ALB distributes traffic
 ```
 
-The pipeline is defined in:
+As demand falls, ECS can scale the service back toward its minimum capacity.
+
+---
+
+# Application Load Balancer
+
+I use one public Application Load Balancer as the entry point for both services.
+
+```text
+                       ALB
+                        |
+             +----------+----------+
+             |                     |
+          /api/*                   /*
+             |                     |
+             v                     v
+      Backend Target Group   Frontend Target Group
+             |                     |
+             v                     v
+       ECS Port 8080          ECS Port 80
+```
+
+The React application uses:
+
+```text
+/api/
+```
+
+for API requests.
+
+That means the browser can access both services through the same public endpoint while the ALB handles routing internally.
+
+---
+
+# Jenkins CI/CD
+
+One of my goals with this project was to eliminate the manual deployment process.
+
+Before automation, deploying a change would mean doing something like:
+
+```text
+Build Docker Image
+        ↓
+Login to ECR
+        ↓
+Tag Image
+        ↓
+Push Image
+        ↓
+Update ECS
+        ↓
+Wait for Deployment
+```
+
+I automated that workflow with Jenkins.
+
+Jenkins runs on a dedicated EC2 instance and uses an EC2 IAM role to communicate with AWS.
+
+The deployment pipeline is defined as code in:
 
 ```text
 Jenkinsfile
 ```
 
-### Jenkins Pipeline Stages
-
-1. Checkout repository
-2. Build frontend and backend Docker images
-3. Authenticate to Amazon ECR
-4. Push both images to ECR
-5. Trigger new ECS deployments
-6. Wait until both ECS services become stable
-
-AWS permissions are provided to Jenkins using an EC2 IAM role.
-
-No AWS access keys are stored in the repository.
-
-## GitOps Alternative – GitHub Actions
-
-An alternative CI/CD implementation is available on the:
+The pipeline performs:
 
 ```text
-gitops
-```
-
-branch.
-
-The workflow is located at:
-
-```text
-.github/workflows/deploy.yml
-```
-
-A push to the `gitops` branch triggers:
-
-```text
-Git Push
+GitHub
    |
    v
-GitHub Actions
+Checkout Source
    |
    v
-Build Docker Images
+Build Frontend + Backend Images
    |
    v
-Push Images to Amazon ECR
+Authenticate to Amazon ECR
    |
    v
-Update ECS Services
+Push Images
    |
    v
-Wait for ECS Services
+Trigger ECS Deployments
+   |
+   v
+Wait for Services to Stabilize
    |
    v
 Deployment Complete
 ```
 
-AWS credentials used by GitHub Actions are stored using GitHub Actions Secrets and are never committed to source control.
+This was also a useful troubleshooting exercise.
 
-## Security
+While building the pipeline, the Jenkins EC2 instance ran out of memory during the React build. Rather than treating the failure as just a pipeline problem, I traced the Linux logs, identified an OOM kill, resized the instance, corrected Jenkins resource thresholds, and reran the deployment successfully.
 
-Several security practices are used in this project:
+That experience was one of my favorite parts of the project because it connected CI/CD with actual Linux and infrastructure troubleshooting.
+
+---
+
+# GitHub Actions
+
+After getting the Jenkins pipeline working, I wanted to implement the same deployment workflow using another CI/CD platform.
+
+The `gitops` branch contains a GitHub Actions implementation:
+
+```text
+.github/workflows/deploy.yml
+```
+
+A push to that branch triggers:
+
+```text
+Git Push
+   |
+   v
+GitHub Actions Runner
+   |
+   v
+Authenticate to AWS
+   |
+   v
+Build Docker Images
+   |
+   v
+Push Images to ECR
+   |
+   v
+Update ECS Services
+   |
+   v
+Wait for Services to Stabilize
+   |
+   v
+Deployment Complete
+```
+
+This gave me a chance to compare a self-managed CI/CD server such as Jenkins with a managed CI/CD platform such as GitHub Actions.
+
+The two implementations ultimately deploy to the same AWS infrastructure:
+
+| Branch | Automation | Deployment Path |
+|---|---|---|
+| `main` | Jenkins | GitHub → Jenkins → Docker → ECR → ECS |
+| `gitops` | GitHub Actions | GitHub → Actions → Docker → ECR → ECS |
+
+---
+
+# IAM & Security
+
+I tried to avoid solving automation problems by simply hardcoding credentials.
+
+Some of the security decisions in the project include:
 
 - AWS credentials are not committed to Git.
-- Jenkins uses an EC2 IAM role for AWS access.
-- GitHub Actions credentials are stored as encrypted repository secrets.
-- ECS tasks accept application traffic only from the Application Load Balancer security group.
-- ECR repositories are private.
-- SSH/private key files and Terraform state are excluded using `.gitignore`.
-- The source repository used for evaluation is private.
+- Jenkins authenticates to AWS through an EC2 IAM role.
+- GitHub Actions secrets are stored outside the source code.
+- Amazon ECR repositories are private.
+- ECS application ports only accept inbound traffic from the ALB security group.
+- Terraform state files are excluded from Git.
+- SSH/private keys are excluded from Git.
+- Application containers are not directly exposed as the primary public entry point.
 
-## Application URL
+The `.gitignore` prevents common sensitive files from accidentally entering version control.
 
-Frontend:
+---
+
+# End-to-End Flow
+
+Putting everything together:
 
 ```text
-http://devops-challenge-alb-1316839665.us-east-1.elb.amazonaws.com
+Developer
+    |
+    v
+  GitHub
+    |
+    +----------------------+
+    |                      |
+    v                      v
+ Jenkins             GitHub Actions
+    |                      |
+    +----------+-----------+
+               |
+               v
+            Docker
+               |
+               v
+          Amazon ECR
+               |
+               v
+          ECS Fargate
+          /         \
+         /           \
+   Frontend        Backend
+      |               |
+      +-------+-------+
+              |
+              v
+     Application Load Balancer
+              |
+              v
+           Internet
 ```
 
-A successful deployment displays:
+Terraform manages the AWS application infrastructure underneath the deployment workflow.
 
-```text
-SUCCESS <backend-generated-guid>
-```
+---
 
-This confirms that the React frontend can successfully communicate with the backend running as a separate ECS service.
+# What I Learned
 
-## CI/CD Implementations
+The biggest takeaway from this project wasn't learning another individual AWS service or DevOps command.
 
-Two deployment approaches are included:
+It was understanding how the pieces connect.
 
-| Branch | CI/CD System | Deployment |
-|---|---|---|
-| `main` | Jenkins | Docker → ECR → ECS |
-| `gitops` | GitHub Actions | Docker → ECR → ECS |
+Docker makes the application portable.
 
-## Cleanup
+ECR stores the images.
 
-To avoid unnecessary AWS charges, resources can be removed after evaluation.
+ECS runs them.
 
-First terminate manually created Jenkins resources, then remove Terraform-managed infrastructure:
+Fargate provides the compute.
+
+The ALB exposes and routes traffic.
+
+Auto Scaling adjusts capacity.
+
+IAM controls what the automation is allowed to do.
+
+Terraform describes the infrastructure.
+
+Jenkins and GitHub Actions automate the path from source code to deployment.
+
+Git ties the entire workflow together.
+
+Building the complete environment made those relationships much clearer than learning each technology independently.
+
+---
+
+# Tearing It Down
+
+Because this is a lab environment, I don't leave the infrastructure running when I'm not using it.
+
+Terraform-managed resources can be removed with:
 
 ```bash
 cd terraform
 terraform destroy
 ```
 
-ECR repositories may need to be emptied before Terraform can delete them.
+The manually created Jenkins EC2 resources are removed separately.
+
+Then I can rebuild the environment again when I want to experiment with something new.
+
+Build. Break. Troubleshoot. Automate. Destroy. Repeat.
+
+---
 
 ## Author
 
-Daniel BM
+**Daniel BM**
+
+Cloud & DevOps Engineering
