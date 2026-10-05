@@ -1,0 +1,72 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - gitops
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: devops-challenge-cluster
+  FRONTEND_SERVICE: devops-challenge-frontend-service
+  BACKEND_SERVICE: devops-challenge-backend-service
+  FRONTEND_REPOSITORY: devops-challenge-frontend
+  BACKEND_REPOSITORY: devops-challenge-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t challenge-frontend ./frontend
+          docker build -t challenge-backend ./backend
+
+          docker tag challenge-frontend:latest \
+            $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest
+
+          docker tag challenge-backend:latest \
+            $ECR_REGISTRY/$BACKEND_REPOSITORY:latest
+
+          docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$BACKEND_REPOSITORY:latest
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$FRONTEND_SERVICE" \
+            --force-new-deployment \
+            --region "$AWS_REGION"
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$BACKEND_SERVICE" \
+            --force-new-deployment \
+            --region "$AWS_REGION"
+
+      - name: Wait for ECS services
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$FRONTEND_SERVICE" "$BACKEND_SERVICE" \
+            --region "$AWS_REGION"
+
+          echo "GitHub Actions deployment successful!"
